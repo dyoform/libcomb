@@ -3,11 +3,16 @@ package libcomb
 import (
 	"fmt"
 	"log"
+	"sync"
 )
 
-const Version string = "0.0.0"
-
-var testnet bool = false
+//write lock on loading blocks or constructs
+//read lock on reading anything from the maps
+var guard sync.RWMutex
+var mode struct {
+	testnet     bool
+	lightwallet bool
+}
 
 type Block struct {
 	Commits [][32]byte
@@ -31,26 +36,24 @@ func Commit(address [32]byte) [32]byte {
 
 func HaveCommit(commit [32]byte) bool {
 	var have bool
-	commits_guard.RLock()
-	defer commits_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	_, have = commits[commit]
 	return have
 }
 
 func GetCommitCount() uint64 {
-	commits_guard.RLock()
-	defer commits_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	return uint64(len(commits))
 }
 
 func GetLock() {
-	commits_guard.Lock()
-	balance_guard.Lock()
+	guard.Lock()
 }
 
 func ReleaseLock() {
-	balance_guard.Unlock()
-	commits_guard.Unlock()
+	guard.Unlock()
 }
 
 func LoadBlock(b Block) {
@@ -66,63 +69,61 @@ func FinishReorg() {
 }
 
 func GetHeight() uint64 {
-	commits_guard.RLock()
-	defer commits_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	return height
 }
 
 func SetHeight(h uint64) error {
-	commits_guard.Lock()
-	defer commits_guard.Unlock()
+	guard.RLock()
+	defer guard.RUnlock()
 
-	if len(commits) > 0 {
+	if len(commits) > 0 { //sanity check
 		return fmt.Errorf("commit set is not empty")
 	}
+
 	height = h
 	return nil
 }
 
 func GetBalance(address [32]byte) uint64 {
-	balance_guard.RLock()
-	defer balance_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	return balance[address]
 }
 
 func Reset() {
-	constructs_guard.Lock()
-	commits_guard.Lock()
-	balance_guard.Lock()
-	defer balance_guard.Unlock()
-	defer commits_guard.Unlock()
-	defer constructs_guard.Unlock()
+	guard.RLock()
+	defer guard.RUnlock()
 
 	constructs_initialize()
 	balance_initialize()
 	commits_initialize()
 	height = 0
-	testnet = false
+
+	mode.testnet = false
+	mode.lightwallet = false
 }
 
 func SwitchToTestnet() error {
-	commits_guard.Lock()
-	defer commits_guard.Unlock()
+	mode.testnet = true
+	return nil
+}
 
-	if len(commits) > 0 {
-		return fmt.Errorf("commit set is not empty")
-	}
-	testnet = true
+func SwitchToLightwallet() error {
+	mode.lightwallet = true
 	return nil
 }
 
 func LoadConstruct(c Construct) [32]byte {
-	constructs_guard.Lock()
-	defer constructs_guard.Unlock()
+	guard.Lock()
+	defer guard.Unlock()
 	return constructs_load(c)
 }
 
 func GetConstruct(id [32]byte) Construct {
-	constructs_guard.Lock()
-	defer constructs_guard.Unlock()
+	guard.Lock()
+	defer guard.Unlock()
 	return constructs[id]
 }
 
@@ -144,8 +145,8 @@ func LoadTransaction(tx Transaction) (id [32]byte, err error) {
 }
 
 func SignTransaction(tx *Transaction) error {
-	constructs_guard.RLock()
-	defer constructs_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	return tx_sign(tx)
 }
 
@@ -173,9 +174,11 @@ func SignDecider(d Decider, number uint16) (signature [2][32]byte, err error) {
 }
 
 func LoadUnsignedMerkleSegment(m UnsignedMerkleSegment) (id [32]byte, err error) {
+	guard.RLock()
 	if c, ok := constructs[m.ID()]; ok && c.triggers() != nil {
 		return m.ID(), fmt.Errorf("cannot overwrite a signed merkle segment with an unsigned one")
 	}
+	guard.RUnlock()
 
 	return LoadConstruct(m), nil
 }
@@ -185,6 +188,7 @@ func LoadMerkleSegment(m MerkleSegment) (id [32]byte, err error) {
 		return id, err
 	}
 
+	guard.RLock()
 	//special consideration is needed since you can have different outputs while having the same ID
 	if c, ok := constructs[m.ID()]; ok && c.triggers() != nil { //check if a signed merkle segment is loaded with our ID
 		if s, ok := c.(MerkleSegment); ok && !merkle_compare(s, m) { //check if its different to our merkle segment
@@ -192,6 +196,7 @@ func LoadMerkleSegment(m MerkleSegment) (id [32]byte, err error) {
 			return m.ID(), fmt.Errorf("cannot load conflicting merkle segment")
 		}
 	}
+	guard.RUnlock()
 
 	return LoadConstruct(m), nil
 }
@@ -205,6 +210,8 @@ func ComputeProof(tree [65536][32]byte, destination uint16) (root [32]byte, bran
 }
 
 func GetKeys() []Key {
+	guard.RLock()
+	defer guard.RUnlock()
 	var keys []Key = make([]Key, 0)
 	for _, c := range construct_load_order {
 		if key, ok := constructs[c].(Key); ok {
@@ -215,6 +222,8 @@ func GetKeys() []Key {
 }
 
 func GetStacks() []Stack {
+	guard.RLock()
+	defer guard.RUnlock()
 	var stacks []Stack = make([]Stack, 0)
 	for _, c := range construct_load_order {
 		if stack, ok := constructs[c].(Stack); ok {
@@ -225,6 +234,8 @@ func GetStacks() []Stack {
 }
 
 func GetTransactions() []Transaction {
+	guard.RLock()
+	defer guard.RUnlock()
 	var transactions []Transaction = make([]Transaction, 0)
 	for _, c := range construct_load_order {
 		if transaction, ok := constructs[c].(Transaction); ok {
@@ -235,6 +246,8 @@ func GetTransactions() []Transaction {
 }
 
 func GetDeciders() []Decider {
+	guard.RLock()
+	defer guard.RUnlock()
 	var deciders []Decider = make([]Decider, 0)
 	for _, c := range construct_load_order {
 		if decider, ok := constructs[c].(Decider); ok {
@@ -245,6 +258,8 @@ func GetDeciders() []Decider {
 }
 
 func GetMerkleSegments() []MerkleSegment {
+	guard.RLock()
+	defer guard.RUnlock()
 	var segments []MerkleSegment = make([]MerkleSegment, 0)
 	for _, c := range construct_load_order {
 		if segment, ok := constructs[c].(MerkleSegment); ok {
@@ -255,6 +270,8 @@ func GetMerkleSegments() []MerkleSegment {
 }
 
 func GetUnsignedMerkleSegments() []UnsignedMerkleSegment {
+	guard.RLock()
+	defer guard.RUnlock()
 	var segments []UnsignedMerkleSegment = make([]UnsignedMerkleSegment, 0)
 	for _, c := range construct_load_order {
 		if segment, ok := constructs[c].(UnsignedMerkleSegment); ok {
@@ -265,16 +282,20 @@ func GetUnsignedMerkleSegments() []UnsignedMerkleSegment {
 }
 
 func LookupDecider(id [32]byte) (Decider, error) {
+	guard.RLock()
+	defer guard.RUnlock()
 	return decider_lookup(id)
 }
 
 func LookupUnsignedMerkleSegment(id [32]byte) (UnsignedMerkleSegment, error) {
+	guard.RLock()
+	defer guard.RUnlock()
 	return unsigned_merkle_segment_lookup(id)
 }
 
 func GetCOMBBase(height uint64) (commit [32]byte, err error) {
-	commits_guard.RLock()
-	defer commits_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	for c, t := range commits {
 		if t.Height == height && t.Order == 0 {
 			return c, nil
@@ -284,8 +305,8 @@ func GetCOMBBase(height uint64) (commit [32]byte, err error) {
 }
 
 func GetCommitTag(commit [32]byte) (t Tag, err error) {
-	commits_guard.RLock()
-	defer commits_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	var b bool
 	if t, b = commits[commit]; !b {
 		return t, fmt.Errorf("no such commit")
@@ -294,23 +315,7 @@ func GetCommitTag(commit [32]byte) (t Tag, err error) {
 }
 
 func GetCoinHistory(address [32]byte) map[[32]byte]struct{} {
-	balance_guard.RLock()
-	defer balance_guard.RUnlock()
+	guard.RLock()
+	defer guard.RUnlock()
 	return get_history(address)
-}
-
-func DEBUGAddCommits(arr [][32]byte) {
-	var t Tag
-	t.Height = GetHeight()
-	t.Order = 0
-	for _, tag := range commits {
-		if tag.Height == t.Height && tag.Order > t.Order {
-			t.Order = tag.Order
-		}
-	}
-	for _, c := range arr {
-		t.Order++
-		commits[c] = t
-		constructs_check_commit(c)
-	}
 }

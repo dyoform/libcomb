@@ -3,7 +3,6 @@ package libcomb
 import (
 	"fmt"
 	"log"
-	"sync"
 )
 
 type Construct interface {
@@ -16,7 +15,6 @@ var constructs map[[32]byte]Construct         //id -> construct
 var construct_triggers map[[32]byte][32]byte  //trigger -> id
 var construct_uncommits map[[32]byte][32]byte //commit(id) -> id
 var construct_load_order [][32]byte           //golangs maps dont have a stable order
-var constructs_guard sync.RWMutex
 
 func constructs_initialize() {
 	constructs = make(map[[32]byte]Construct)
@@ -26,8 +24,6 @@ func constructs_initialize() {
 }
 
 func constructs_load(c Construct) [32]byte {
-	balance_guard.Lock()
-	defer balance_guard.Unlock()
 	var id [32]byte = c.ID()
 
 	if _, ok := constructs[id]; !ok {
@@ -51,8 +47,6 @@ func constructs_load(c Construct) [32]byte {
 func constructs_check_commit(commit [32]byte) {
 	var ok bool
 	var id [32]byte
-	constructs_guard.Lock()
-	defer constructs_guard.Unlock()
 
 	//trigger any constructs that set 'commit' as a trigger
 	if id, ok = construct_triggers[commit]; ok {

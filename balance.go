@@ -1,14 +1,9 @@
 package libcomb
 
-import (
-	"sync"
-)
-
 var balance map[[32]byte]uint64
 var balance_edge map[[32]byte][32]byte    //source -> destination
 var balance_one_off map[[32]byte][32]byte //source -> destination
 var balance_coinbases map[[32]byte]uint64 //commit -> reward
-var balance_guard sync.RWMutex
 
 func balance_initialize() {
 	balance = make(map[[32]byte]uint64)

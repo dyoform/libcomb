@@ -167,33 +167,6 @@ func merkle_recover_number(m *MerkleSegment) (number uint16, err error) {
 	return number, nil
 }
 
-func merkle_recover_from_tree(m *MerkleSegment, tree [65536][32]byte) (err error) {
-	var number uint16
-	var link [32]byte
-
-	//recover number from signature and tips
-	if number, err = merkle_recover_number(m); err != nil {
-		return err
-	}
-
-	//recover root, branches and leaf from tree + number
-	m.Root, m.Branches, m.Leaf = merkle_traverse_tree(tree, number)
-
-	//recover decider link from tips + next
-	var data [3][32]byte
-	data[0] = m.Next
-	data[1] = m.Tips[0]
-	data[2] = m.Tips[1]
-	link = Hash256Concat32(data[:])
-
-	m.id = Hash256Adjacent(link, m.Root)
-	return nil
-}
-
-func merkle_compute_address(link, root [32]byte) [32]byte {
-	return Hash256Adjacent(link, root)
-}
-
 func merkle_compare(a MerkleSegment, b MerkleSegment) bool {
 	if a.ID() != b.ID() {
 		return false

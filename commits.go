@@ -1,12 +1,7 @@
 package libcomb
 
-import (
-	"sync"
-)
-
 var commits map[[32]byte]Tag
 var height uint64
-var commits_guard sync.RWMutex
 
 func commits_initialize() {
 	commits = make(map[[32]byte]Tag)
@@ -49,4 +44,9 @@ func unload_block() uint64 {
 	height--
 	return height
 	//note: balance graph is now invalid, needs to be reconstructed
+}
+
+func commit(hash [32]byte) [32]byte {
+	var data = [2][32]byte{whitepaper, hash}
+	return Hash256Concat32(data[:])
 }
