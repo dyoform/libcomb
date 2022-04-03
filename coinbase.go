@@ -2,7 +2,7 @@ package libcomb
 
 import "fmt"
 
-func coinbase_give_reward(c [32]byte) bool {
+func coinbase_give_reward(c, a [32]byte) bool {
 	if _, ok := balance_coinbases[c]; ok {
 		fmt.Printf("already rewarded\n")
 		return false //already awarded
@@ -16,29 +16,35 @@ func coinbase_give_reward(c [32]byte) bool {
 
 	fmt.Printf("rewarded\n")
 	balance_coinbases[c] = reward
-	balance[c] += reward
+	balance[a] += reward
 	return true
 }
 
 func coinbase_check_commit(c [32]byte) {
 	if a, ok := construct_uncommits[c]; ok {
-		if !coinbase_give_reward(c) {
+		if !coinbase_give_reward(c, a) {
 			return //no coinbase awarded
 		}
 		//redirect funds to the address
-		balance_redirect(c, a)
+		//balance_redirect(c, a)
+
+		//propagate the reward
+		balance_propagate(a)
 	}
 }
 
 func coinbase_check_address(a [32]byte) {
 	var c [32]byte = commit(a)
 
-	if !coinbase_give_reward(c) {
+	if !coinbase_give_reward(c, a) {
 		return //no coinbase awarded
 	}
 
 	//now propagate the coinbase to the construct
-	balance_redirect(c, a)
+	//balance_redirect(c, a)
+
+	//propagate the reward
+	balance_propagate(a)
 }
 
 func coin_supply(height uint64) (uint64, uint64) {
